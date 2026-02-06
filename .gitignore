@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.venv/
+venv/
+
+# Env / local config
+.env
+**/.env
+
+# Large artifacts / data / weights (keep repo code-only)
+raw_data/
+output/
+models/
+**/*.parquet
+**/*.safetensors
+**/*.bin
+**/*.pt
+**/*.ckpt
+
+# Wheels / binary drops committed by accident
+*.whl
+*.whl.*
+*.so
+*.dylib
+*.dll
+*:Zone.Identifier
+*Zone.Identifier
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# Module-specific run outputs
+verl_rl/outputs/
+verl_rl/logs/
