@@ -265,6 +265,16 @@ def get_argument_parser() -> argparse.ArgumentParser:
     # Training arguments
     parser.add_argument("--use_tie_weights", action="store_true",
                        help="Tie embedding and lm_head weights")
+    parser.add_argument(
+        "--attn_implementation",
+        type=str,
+        default="sdpa",
+        choices=["eager", "sdpa", "flash_attention_2"],
+        help=(
+            "Attention implementation to use. `flash_attention_2` requires a compatible "
+            "flash-attn build and GPU support; `sdpa` is a safe default."
+        ),
+    )
     parser.add_argument("--clip_range", type=float, default=None,
                        help="Gradient clipping range")
     parser.add_argument("--freeze_llm", action="store_true",
@@ -475,7 +485,7 @@ def initialize_model(
     # Create model on meta device
     with set_default_dtype(torch.bfloat16), torch.device("meta"), init_empty_weights():
         config = AutoConfig.from_pretrained(args.model_dir, trust_remote_code=True )
-        config._attn_implementation = "flash_attention_2"
+        config._attn_implementation = args.attn_implementation
         config.use_cache = False
         config.chunked_loss_computer = args.use_chunked_loss_computer
         model = eval(args.model_class)(config)
@@ -1198,6 +1208,10 @@ def train():
             if remaining_debug_samples > 0 and dist.get_rank() <= 8:
                 with Timer("Show data"):
                     input_text = tokenizer.decode(batch['input_ids'][0])
+                    # Avoid spamming logs with extremely long decoded sequences.
+                    max_chars = 4000
+                    if len(input_text) > max_chars:
+                        input_text = input_text[:max_chars] + "\n...[truncated]..."
                     # Stagger output by rank to avoid interleaved prints (0.3s per rank)
                     time.sleep(float(dist.get_rank()) * 0.3)
                     print(f"Input Text:\n\n{input_text}\n" + "=" * 100 + "\n\n")

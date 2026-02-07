@@ -110,7 +110,10 @@ def get_scheduler(
     Raises:
         NotImplementedError: If scheduler name is not supported.
     """
-    if name == "cosine":
+    # Backward-compat aliases:
+    # - train_qwen3.py historically used `cosine_with_min_lr` as the default,
+    #   but the actual implementation is `get_cosine_scheduler(min_lr=...)`.
+    if name in {"cosine", "cosine_with_min_lr"}:
         return get_cosine_scheduler(
             optimizer=optimizer,
             num_warmup_steps=num_warmup_steps,
@@ -119,4 +122,3 @@ def get_scheduler(
         )
     else:
         raise NotImplementedError(f"Unsupported LR scheduler `{name}`")
-

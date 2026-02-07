@@ -272,8 +272,18 @@ class Qwen3ChatCompletionDataset(IterableDataset):
         )
 
         input_ids = inputs["input_ids"]
-        
-        # Check length
+
+        # Truncate overly-long samples instead of hard failing.
+        # Note: `max_sample_length` is intended to cap individual samples, while
+        # `max_length` controls packing length per step.
+        seq_len = input_ids.shape[-1]
+        if seq_len > self.max_sample_length:
+            for k, v in list(inputs.items()):
+                if isinstance(v, torch.Tensor) and v.shape[-1] == seq_len:
+                    inputs[k] = v[..., : self.max_sample_length]
+            input_ids = inputs["input_ids"]
+
+        # Safety check (should be guaranteed by max_sample_length <= max_length)
         if input_ids.shape[-1] > self.max_length:
             raise ValueError(f"Sample too long: {input_ids.shape[-1]} > {self.max_length}")
         
@@ -326,7 +336,16 @@ class Qwen3ChatCompletionDataset(IterableDataset):
         )
 
         input_ids = inputs["input_ids"]        
-        # Check length
+
+        # Truncate overly-long samples instead of hard failing.
+        seq_len = input_ids.shape[-1]
+        if seq_len > self.max_sample_length:
+            for k, v in list(inputs.items()):
+                if isinstance(v, torch.Tensor) and v.shape[-1] == seq_len:
+                    inputs[k] = v[..., : self.max_sample_length]
+            input_ids = inputs["input_ids"]
+
+        # Safety check (should be guaranteed by max_sample_length <= max_length)
         if input_ids.shape[-1] > self.max_length:
             raise ValueError(f"Sample too long: {input_ids.shape[-1]} > {self.max_length}")
         
@@ -470,8 +489,16 @@ class Qwen3ChatCompletionDataset(IterableDataset):
         cur_length = 0
         ds_iter = iter(self.dataset)
         while True:
+            # Defaults used for robust error reporting if parsing fails early.
+            source_name = "unknown"
+            sample_key = ""
+            sample_url = ""
+            sample = None
             try:
                 sample = next(ds_iter)
+            except StopIteration:
+                break
+            try:
                 sample_key = sample["__key__"] if "__key__" in sample else ""
                 sample_url = sample["__url__"] if "__url__" in sample else ""
 
@@ -484,11 +511,15 @@ class Qwen3ChatCompletionDataset(IterableDataset):
                 self.source_sample_cnt[source_name] += 1
             
                 inputs = self._process(sample, source_name)
-            except:
+            except Exception:
                 self.source_error_cnt.setdefault(source_name, 0)
                 self.source_error_cnt[source_name] += 1
-                error_ratio = self.source_error_cnt[source_name] * 1.0 / \
-                    self.source_sample_cnt[source_name]
+                sample_cnt = self.source_sample_cnt.get(source_name, 0)
+                error_ratio = (
+                    (self.source_error_cnt[source_name] * 1.0 / sample_cnt)
+                    if sample_cnt > 0
+                    else None
+                )
                 
                 rank, world_size, worker, num_workers = pytorch_worker_info()
                 logger.error(
@@ -672,7 +703,9 @@ class Qwen3NaiveParquetDataset(IterableDataset):
 class Qwen3ChatCompletionParquetDataset(Qwen3ChatCompletionDataset):
     def __init__(self, sources, num_workers, shuffle_seed=1024, num_epochs=1, **kwargs):
         self.rng = random.Random(shuffle_seed)
-        self.num_workers = num_workers
+        # Dataloader `num_workers` can be 0 (main-process loading). Internally we
+        # still treat it as a single worker for file sharding/state.
+        self.num_workers = max(1, int(num_workers))
         self.num_epochs = num_epochs
         self.cut_to_pad = kwargs.get("cut_to_pad", True)
         self.kwargs = kwargs
